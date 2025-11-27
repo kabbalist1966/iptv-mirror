@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>IPTV Streams Mirror</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f9f9f9; margin: 20px; }
+    h1 { margin: 0; position: sticky; top: 0; background: #f9f9f9; padding: 10px 0; z-index: 3; }
+    table { border-collapse: collapse; width: 100%; table-layout: auto; }
+    th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: top; }
+    th { background: #eee; position: sticky; top: 2.5em; z-index: 2; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; color: #fff; font-weight: bold; white-space: nowrap; margin-right: 8px; }
+    a { color: blue; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .toggle, .collapse { color: blue; cursor: pointer; font-size: 0.75em; margin-top: 4px; display: inline-block; }
+    .collapse { margin-left: 8px; display: none; }
+    #streams th:first-child, #streams td:first-child { width: 1%; white-space: nowrap; }
+    .channels-table { border-collapse: collapse; width: 100%; margin-top: 6px; }
+    .channels-table th, .channels-table td { border: 1px solid #ddd; padding: 4px 6px; font-size: 0.8em; }
+    .channels-table th { background: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <h1>IPTV Streams Mirror</h1>
+  <table id="streams">
+    <thead>
+      <tr><th>Country</th><th>Channels</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    function normalizeCode(raw) {
+      return raw.toLowerCase().trim().normalize("NFKC").replace(/[^a-z]/g, "");
+    }
+    const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+    function extractCountry(filename) {
+      const base = filename.replace(/\.m3u$/i, "");
+      const token = normalizeCode(base.split("_")[0]);
+      if (/^[a-z]{2}$/i.test(token)) {
+        try { const name = regionNames.of(token.toUpperCase()); if (name) return name; } catch (e) {}
+      }
+      return base.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    }
+    function getColorForCode(code) {
+      if (!code) return "#999";
+      let hash = 0;
+      for (let i = 0; i < code.length; i++) hash = code.charCodeAt(i) + ((hash << 5) - hash);
+      const hue = Math.abs(hash) % 360;
+      return `hsl(${hue}, 70%, 45%)`;
+    }
+
+    // ✅ Allow .m3u8 links even with query strings
+    function isM3U8(url) {
+      try {
+        const u = new URL(url);
+        return u.pathname.toLowerCase().endsWith(".m3u8");
+      } catch {
+        return false;
+      }
+    }
+
+    function parseM3U(text) {
+      const lines = text.split("\n");
+      const channels = [];
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith("#EXTINF")) {
+          let name = "Unknown";
+          const nameMatch = lines[i].match(/tvg-name="([^"]+)"/);
+          if (nameMatch) {
+            name = nameMatch[1];
+          } else {
+            const commaIndex = lines[i].indexOf(",");
+            if (commaIndex !== -1) {
+              name = lines[i].substring(commaIndex + 1).trim();
+            }
+          }
+          const genreMatch = lines[i].match(/group-title="([^"]+)"/);
+          const genre = genreMatch ? genreMatch[1] : "";
+
+          const url = lines[i + 1] ? lines[i + 1].trim() : "";
+          if (url && !url.startsWith("#") && isM3U8(url)) {
+            channels.push({ name, url, genre });
+          }
+        }
+      }
+      return channels;
+    }
+
+    async function loadStreams() {
+      const url = "https://api.github.com/repos/iptv-org/iptv/contents/streams";
+      const res = await fetch(url);
+      const files = await res.json();
+      const tbody = document.querySelector("#streams tbody");
+
+      const groups = {};
+      for (const file of files) {
+        if (!file.name.endsWith(".m3u")) continue;
+        const country = extractCountry(file.name);
+        const code = normalizeCode(file.name.replace(/\.m3u$/i, "").split("_")[0]);
+        if (!groups[country]) {
+          groups[country] = { code, files: [] };
+        }
+        groups[country].files.push(file.download_url);
+      }
+
+      for (const [country, info] of Object.entries(groups)) {
+        const tr = document.createElement("tr");
+
+        const tdCountry = document.createElement("td");
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = country;
+        badge.style.backgroundColor = country === "Unknown" ? "#999" : getColorForCode(info.code);
+        tdCountry.appendChild(badge);
+
+        const collapseBtn = document.createElement("span");
+        collapseBtn.className = "collapse";
+        collapseBtn.textContent = "Collapse";
+        tdCountry.appendChild(collapseBtn);
+
+        const tdChannels = document.createElement("td");
+        tdChannels.textContent = "";
+
+        const toggle = document.createElement("span");
+        toggle.className = "toggle";
+        toggle.textContent = "Expand channels";
+
+        let expanded = false;
+        let channelsTable = null;
+
+        toggle.onclick = async () => {
+          if (!expanded) {
+            if (!channelsTable) {
+              const allChannels = [];
+              for (const url of info.files) {
+                const rawRes = await fetch(url);
+                const text = await rawRes.text();
+                const channels = parseM3U(text);
+                allChannels.push(...channels);
+              }
+              channelsTable = document.createElement("table");
+              channelsTable.className = "channels-table";
+              const headerRow = document.createElement("tr");
+              const thName = document.createElement("th");
+              thName.textContent = "Channel Name";
+              const thType = document.createElement("th");
+              thType.textContent = "Type";
+              headerRow.appendChild(thName);
+              headerRow.appendChild(thType);
+              channelsTable.appendChild(headerRow);
+
+              allChannels.forEach(ch => {
+                const row = document.createElement("tr");
+                const tdName = document.createElement("td");
+                const link = document.createElement("a");
+                link.href = ch.url;
+                link.textContent = ch.name;
+                link.target = "_blank";
+                tdName.appendChild(link);
+                const tdType = document.createElement("td");
+                tdType.textContent = ch.genre || "";
+                row.appendChild(tdName);
+                row.appendChild(tdType);
+                channelsTable.appendChild(row);
+              });
+            }
+            tdChannels.insertBefore(channelsTable, toggle);
+            toggle.textContent = "Hide channels";
+            collapseBtn.style.display = "inline";
+            expanded = true;
+          } else {
+            if (channelsTable) tdChannels.removeChild(channelsTable);
+            toggle.textContent = "Expand channels";
+            collapseBtn.style.display = "none";
+            expanded = false;
+          }
+        };
+
+        collapseBtn.onclick = () => {
+          if (expanded && channelsTable) {
+            tdChannels.removeChild(channelsTable);
+            toggle.textContent = "Expand channels";
+            collapseBtn.style.display = "none";
+            expanded = false;
+          }
+        };
+
+        tdChannels.appendChild(toggle);
+
+        tr.appendChild(tdCountry);
+        tr.appendChild(tdChannels);
+        tbody.appendChild(tr);
+      }
+    }
+
+    loadStreams();
+  </script>
+</body>
+</html>
