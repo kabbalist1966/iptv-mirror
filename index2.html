@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Hyperspace Wormhole — Aliens + Tokyo</title>
+  <style>
+    html, body { margin:0; height:100%; overflow:hidden; background:#000; }
+    .stage { position:fixed; inset:0; }
+    canvas { position:absolute; inset:0; display:block; }
+    #c { z-index: 1; }
+    #overlay { z-index: 2; pointer-events:none; }
+    #city {
+      position:absolute;
+      inset:0;
+      z-index:3;             /* ensure city is above canvases */
+      opacity:0;             /* start hidden */
+      transition: opacity 2s ease; /* smooth fade */
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <img id="city" src="tokyo.jpg" alt="Tokyo Cityscape">
+    <canvas id="c"></canvas>
+    <canvas id="overlay"></canvas>
+  </div>
+
+  <audio id="laugh" src="laugh.mp3"></audio>
+
+  <!-- Starfield -->
+  <script>
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  let W,H,CX,CY;
+  function resize(){W=canvas.width=window.innerWidth;H=canvas.height=window.innerHeight;CX=W/2;CY=H/2;}
+  window.addEventListener('resize',resize);resize();
+
+  let speed=30;
+  const stars=[];
+  const numStars=1000;
+  function newStar(){return{x:(Math.random()-0.5)*W,y:(Math.random()-0.5)*H,z:Math.random()*W};}
+  for(let i=0;i<numStars;i++) stars.push(newStar());
+
+  const cityImg=document.getElementById('city');
+
+  function loop(){
+    ctx.fillStyle='rgba(0,0,0,0.4)';
+    ctx.fillRect(0,0,W,H);
+
+    if(speed>0){
+      cityImg.style.opacity=0; // hide city
+      for(let i=0;i<stars.length;i++){
+        const s=stars[i];
+        s.z-=speed;
+        if(s.z<=0){stars[i]=newStar();continue;}
+        const k=200/s.z;
+        const x=CX+s.x*k;
+        const y=CY+s.y*k;
+        if(x<0||x>=W||y<0||y>=H){stars[i]=newStar();continue;}
+        const lenFactor=(1-s.z/W);
+        const lx=x-s.x*0.02*(lenFactor*20);
+        const ly=y-s.y*0.02*(lenFactor*20);
+        ctx.strokeStyle=`hsl(${lenFactor*360},100%,60%)`;
+        ctx.beginPath();
+        ctx.moveTo(x,y);
+        ctx.lineTo(lx,ly);
+        ctx.stroke();
+      }
+    } else {
+      cityImg.style.opacity=1; // fade in city
+    }
+
+    requestAnimationFrame(loop);
+  }
+  loop();
+
+  window.getHyperspaceSpeed = () => speed;
+
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowUp') speed+=5;
+    if(e.key==='ArrowDown') speed-=5;
+    if(speed<0) speed=0; // allow full stop
+    if(speed>80) speed=80;
+  });
+  </script>
+
+  <!-- Overlay aliens -->
+  <script>
+  (() => {
+    const overlay=document.getElementById('overlay');
+    const octx=overlay.getContext('2d');
+    overlay.width=window.innerWidth; overlay.height=window.innerHeight;
+    let CX=overlay.width/2, CY=overlay.height/2;
+
+    let aliens=[];
+    let lastAlienTime=0;
+    const ALIEN_INTERVAL=8000;
+    const ALIEN_THRESHOLD=12;
+
+    function playLaugh(){
+      const audio = document.getElementById('laugh');
+      audio.currentTime = 0;
+      audio.play();
+    }
+
+    function spawnAlien(){
+      aliens.push({x:CX,y:CY,opacity:1,state:'hi',timer:0,laser:false,scale:1});
+    }
+
+    function drawAlien(a){
+      octx.save();
+      octx.globalAlpha=a.opacity;
+      octx.translate(a.x,a.y);
+      octx.scale(a.scale,a.scale);
+
+      octx.fillStyle='purple';
+      octx.beginPath();
+      octx.ellipse(0,0,60,30,0,0,Math.PI*2);
+      octx.fill();
+
+      octx.fillStyle='rgba(135,206,250,0.7)';
+      octx.beginPath();
+      octx.arc(0,-20,15,0,Math.PI*2);
+      octx.fill();
+
+      for(let i=0;i<3;i++){
+        const ax=-20+i*20, ay=-60;
+        octx.fillStyle='lightgreen';
+        octx.beginPath();
+        octx.arc(ax,ay,10,0,Math.PI*2);
+        octx.fill();
+        octx.fillStyle='black';
+        octx.beginPath();
+        octx.arc(ax-3,ay-2,2,0,Math.PI*2);
+        octx.arc(ax+3,ay-2,2,0,Math.PI*2);
+        octx.fill();
+      }
+
+      if(a.state==='hi'){
+        octx.fillStyle='white';
+        octx.fillRect(70,-80,70,35);
+        octx.fillStyle='black';
+        octx.font='16px sans-serif';
+        octx.fillText('Hi!',90,-60);
+      }
+
+      if(a.laser){
+        octx.strokeStyle='red';
+        octx.lineWidth=4;
+        octx.beginPath();
+        octx.moveTo(0,0);
+        octx.lineTo(-CX,-CY);
+        octx.stroke();
+      }
+
+      octx.restore();
+    }
+
+    function loop(){
+      octx.clearRect(0,0,overlay.width,overlay.height);
+      const speedMirror = window.getHyperspaceSpeed();
+      const now = Date.now();
+
+      if(speedMirror < ALIEN_THRESHOLD && now - lastAlienTime > ALIEN_INTERVAL && speedMirror>0){
+        spawnAlien();
+        lastAlienTime = now;
+      }
+
+      for(let i=aliens.length-1;i>=0;i--){
+        const a=aliens[i];
+        if(a.state==='hi'){
+          a.timer += 16;
+          if(a.timer > 1500 && !a.laser){
+            a.laser = true;
+            playLaugh();
+          }
+          if(a.timer > 3000){
+            a.state='wave';
+          }
+        } else if(a.state==='wave'){
+          a.opacity -= 0.02;
+          a.y -= 2; a.x += 2;
+          a.scale *= 0.96;
+          if(a.opacity <= 0 || a.scale < 0.1){ aliens.splice(i,1); }
+        }
+        drawAlien(a);
+      }
+
+      requestAnimationFrame(loop);
+    }
+    loop();
+  })();
+  </script>
+</body>
+</html>
