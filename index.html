@@ -50,7 +50,6 @@
       return `hsl(${hue}, 70%, 45%)`;
     }
 
-    // ✅ Allow .m3u8 links even with query strings
     function isM3U8(url) {
       try {
         const u = new URL(url);
@@ -154,9 +153,11 @@
                 const row = document.createElement("tr");
                 const tdName = document.createElement("td");
                 const link = document.createElement("a");
-                link.href = ch.url;
+
+                // 🔥 PATCHED LINE — VLC auto-launch
+                link.href = "vlcstream://" + ch.url;
+
                 link.textContent = ch.name;
-                link.target = "_blank";
                 tdName.appendChild(link);
                 const tdType = document.createElement("td");
                 tdType.textContent = ch.genre || "";
